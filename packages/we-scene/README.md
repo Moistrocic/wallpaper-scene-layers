@@ -192,7 +192,7 @@ archive.getJSON("scene.json");
 查看完整表格：
 
 ```bash
-we-scene scene.pkg --particle-defaults      # 命令行
+we-scene --particle-defaults                # 命令行（不需要 scene.pkg）
 ```
 
 ```ts

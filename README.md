@@ -67,7 +67,7 @@ node packages/we-scene/bin/we-scene.mjs fixtures/scene-we-1/scene.pkg --json bui
 node packages/we-scene/bin/we-scene.mjs fixtures/scene-we-1/scene.pkg --out build/extracted --tex
 npm run verify                             # 校验解析 + 纹理解码 + 粒子位移
 npm run presets                            # 扫描本机 Wallpaper Engine 自带的 240 个粒子预设
-node packages/we-scene/bin/we-scene.mjs scene.pkg --particle-defaults   # 查看粒子默认值及其出处
+node packages/we-scene/bin/we-scene.mjs --particle-defaults              # 查看粒子默认值及其出处（不需要包）
 ```
 
 ## 库用法

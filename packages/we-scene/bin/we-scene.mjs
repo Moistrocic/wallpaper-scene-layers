@@ -2,38 +2,79 @@
 /**
  * Wallpaper Engine 场景壁纸检查 / 导出工具。
  *
- *   we-scene <scene.pkg> [--out <dir>] [--tex] [--json <file>] [--engine-deps] [--particle-defaults]
+ *   we-scene <scene.pkg> [--out <dir>] [--tex] [--json <file>] [--engine-deps]
+ *   we-scene --particle-defaults        # 不需要包：打印粒子组件默认值表
  *
  * 不带 --out 时只打印包内容与图层清单，通常这就是把场景接入其他项目时需要的信息。
  */
 import fs from "node:fs";
 import path from "node:path";
-import { PackageArchive, createSceneFromArchive, describeLayers, describeParticleDefaults, engineAssetDependencies, parseTex, decodeTexToRGBA, summariseScene } from "../dist/index.js";
+import { PackageArchive, createSceneFromArchive, describeLayers, describeParticleDefaults, engineAssetDependencies, decodeTexToRGBA, summariseScene } from "../dist/index.js";
 import { writePNG } from "./png.mjs";
 
-const args = process.argv.slice(2);
-if (args.length === 0 || args.includes("--help") || args.includes("-h")) {
-  console.log(`用法: we-scene <scene.pkg> [--out <dir>] [--tex] [--json <file>] [--engine-deps]
+const USAGE = `用法: we-scene <scene.pkg> [--out <dir>] [--tex] [--json <file>] [--engine-deps] [--particle-defaults]
 
   --out <dir>    解包全部文件到目录
   --tex          额外把 .tex 解码为 .png（隐含 --out）
   --json <file>  把图层清单写成 JSON
   --engine-deps  列出场景需要、但包里没有的引擎内置资源
-  --particle-defaults  打印库内置的粒子组件默认值及其出处
+  --particle-defaults  打印库内置的粒子组件默认值及其出处（不需要 scene.pkg）
 
 示例:
-  we-scene fixtures/scene-we-1/scene.pkg
+  we-scene scene.pkg
   we-scene scene.pkg --json build/layers.json
   we-scene scene.pkg --engine-deps
-`);
-  process.exit(0);
+  we-scene --particle-defaults`;
+
+function printParticleDefaults() {
+  const defaults = describeParticleDefaults();
+  const sources = { "engine-preview": "引擎组件预览工程", "engine-content": "240 个官方预设统计", "runtime-inferred": "库内推断（无官方出处）" };
+  console.log(`粒子组件默认值（${defaults.length} 项）:\n`);
+  console.log("组件.属性".padEnd(42) + "取值".padEnd(16) + "出处");
+  for (const entry of defaults) {
+    console.log(entry.property.padEnd(42) + String(entry.value).padEnd(16) + sources[entry.source]);
+  }
+  console.log("\n提示：预设省略某个字段时使用这里的取值，出处见第三列；可用 describeParticleDefaults() 在代码里读取。");
 }
 
-const pkgPath = args[0];
-const outIndex = args.indexOf("--out");
-const jsonIndex = args.indexOf("--json");
-const extractAll = outIndex >= 0 || args.includes("--tex");
-const outDir = outIndex >= 0 ? args[outIndex + 1] : "build/extracted";
+const args = process.argv.slice(2);
+const wantsDefaults = args.includes("--particle-defaults");
+const wantsEngineDeps = args.includes("--engine-deps");
+const wantsTex = args.includes("--tex");
+
+// 把 "取值型" 选项的参数摘掉，剩下的第一个位置参数就是包路径。
+let outDir;
+let jsonFile;
+const positionals = [];
+for (let index = 0; index < args.length; index++) {
+  const arg = args[index];
+  if (arg === "--out") { outDir = args[++index]; continue; }
+  if (arg === "--json") { jsonFile = args[++index]; continue; }
+  if (arg.startsWith("-")) continue;
+  positionals.push(arg);
+}
+const pkgPath = positionals[0];
+const extractAll = outDir !== undefined || wantsTex;
+const targetOutDir = outDir ?? "build/extracted";
+
+if (args.length === 0 || args.includes("--help") || args.includes("-h")) {
+  console.log(USAGE);
+  process.exit(0);
+}
+// --particle-defaults 只读库内置的表，没有包也能跑。
+if (wantsDefaults && !pkgPath) {
+  printParticleDefaults();
+  process.exit(0);
+}
+if (!pkgPath) {
+  console.error("缺少 scene.pkg 路径。\n");
+  console.log(USAGE);
+  process.exit(1);
+}
+if (!fs.existsSync(pkgPath)) {
+  console.error(`找不到文件 ${pkgPath}`);
+  process.exit(1);
+}
 
 const archive = new PackageArchive(fs.readFileSync(pkgPath));
 const scene = createSceneFromArchive(archive);
@@ -51,25 +92,15 @@ for (const layer of describeLayers(scene)) {
   );
 }
 
-if (jsonIndex >= 0) {
-  const file = args[jsonIndex + 1];
-  fs.mkdirSync(path.dirname(path.resolve(file)), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify({ summary, layers: describeLayers(scene) }, null, 2));
-  console.log(`\n图层清单已写入 ${file}`);
+if (jsonFile) {
+  fs.mkdirSync(path.dirname(path.resolve(jsonFile)), { recursive: true });
+  fs.writeFileSync(jsonFile, JSON.stringify({ summary, layers: describeLayers(scene) }, null, 2));
+  console.log(`\n图层清单已写入 ${jsonFile}`);
 }
 
-if (args.includes("--particle-defaults")) {
-  const defaults = describeParticleDefaults();
-  const sources = { "engine-preview": "引擎组件预览工程", "engine-content": "240 个官方预设统计", "runtime-inferred": "库内推断（无官方出处）" };
-  console.log(`粒子组件默认值（${defaults.length} 项）:\n`);
-  console.log("组件.属性".padEnd(42) + "取值".padEnd(16) + "出处");
-  for (const entry of defaults) {
-    console.log(entry.property.padEnd(42) + String(entry.value).padEnd(16) + sources[entry.source]);
-  }
-  console.log("\n提示：预设省略某个字段时使用这里的取值，出处见第三列；可用 describeParticleDefaults() 在代码里读取。");
-}
+if (wantsDefaults) printParticleDefaults();
 
-if (args.includes("--engine-deps")) {
+if (wantsEngineDeps) {
   const dependencies = engineAssetDependencies(scene);
   console.log(`\n引擎内置资源依赖（${dependencies.length} 个，包里没有）:`);
   for (const dependency of dependencies) console.log("  " + dependency);
@@ -82,15 +113,15 @@ if (extractAll) {
   for (const entry of archive.list()) {
     const data = archive.get(entry);
     if (!data) continue;
-    const target = path.join(outDir, entry);
+    const target = path.join(targetOutDir, entry);
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(target, data);
     count++;
   }
-  console.log(`已解包 ${count} 个文件到 ${outDir}`);
+  console.log(`已解包 ${count} 个文件到 ${targetOutDir}`);
 }
 
-if (args.includes("--tex")) {
+if (wantsTex) {
   let decoded = 0;
   for (const entry of archive.list()) {
     if (!entry.endsWith(".tex")) continue;
@@ -98,7 +129,7 @@ if (args.includes("--tex")) {
     if (!data) continue;
     const image = decodeTexToRGBA(data);
     if (!image.pixels) continue;
-    const target = path.join(outDir, entry.replace(/\.tex$/, ".png"));
+    const target = path.join(targetOutDir, entry.replace(/\.tex$/, ".png"));
     fs.mkdirSync(path.dirname(target), { recursive: true });
     writePNG(target, image.width, image.height, image.pixels);
     decoded++;
