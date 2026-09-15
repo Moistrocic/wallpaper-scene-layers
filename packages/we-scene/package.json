@@ -1,0 +1,49 @@
+{
+  "name": "@web-we-scene/runtime",
+  "version": "0.1.0",
+  "description": "在浏览器中把 Wallpaper Engine 场景壁纸（scene.pkg）拆成独立图层并分层渲染（WebGL2，零依赖）。",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./shaders": {
+      "types": "./dist/shaders/prelude.d.ts",
+      "import": "./dist/shaders/prelude.js"
+    }
+  },
+  "bin": {
+    "we-scene": "./bin/we-scene.mjs"
+  },
+  "files": [
+    "dist",
+    "bin",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "keywords": [
+    "wallpaper-engine",
+    "scene",
+    "webgl2",
+    "wallpaper",
+    "pkg",
+    "tex"
+  ],
+  "author": "Moistrocic",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Moistrocic/web-we-scene.git",
+    "directory": "packages/we-scene"
+  },
+  "homepage": "https://github.com/Moistrocic/web-we-scene#readme",
+  "bugs": {
+    "url": "https://github.com/Moistrocic/web-we-scene/issues"
+  }
+}

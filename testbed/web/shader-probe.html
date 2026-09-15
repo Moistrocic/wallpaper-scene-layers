@@ -1,0 +1,40 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>着色器编译探针</title></head>
+<body>
+<div id="out">start</div>
+<canvas id="canvas" width="640" height="360"></canvas>
+<script type="module">
+const out = document.getElementById("out");
+const mark = (m) => { console.log("PROBE " + m); out.textContent = m; };
+const lib = await import("../../packages/we-scene/dist/index.js");
+const archive = new lib.PackageArchive(await (await fetch("../../fixtures/scene-we-1/scene.pkg")).arrayBuffer());
+const scene = lib.createSceneFromArchive(archive);
+const renderer = new lib.SceneRenderer({ canvas: document.getElementById("canvas"), archive, scene });
+renderer.render(1, {});
+// Collect every combo set the scene asks for and compile each shader.
+const combos = new Map();
+for (const layer of scene.layers) {
+  for (const effect of layer.effects) {
+    const definition = scene.getEffect(effect.file);
+    if (!definition) continue;
+    for (const [index, pass] of definition.passes.entries()) {
+      const material = scene.getMaterial(pass.material);
+      const shader = material?.passes?.[0]?.shader;
+      if (!shader || ["genericimage4","solid","composite","genericparticle"].includes(shader)) continue;
+      const merged = { ...(material.passes[0].combos ?? {}), ...(effect.passes[index]?.combos ?? {}) };
+      combos.set(shader + "|" + JSON.stringify(merged), [shader, merged]);
+    }
+  }
+}
+mark("combos: " + combos.size);
+for (const [key, [shader, merged]] of combos) {
+  const result = renderer.pipelineProbe ? null : null;
+  const program = renderer["pipeline"]?.getEffect?.(shader, merged);
+  mark((program ? "OK   " : "FAIL ") + key.slice(0, 150));
+  await new Promise((r) => setTimeout(r, 10));
+}
+mark("done");
+window.__ready = true;
+window.__wallpaper = null;
+</script>
+</body></html>

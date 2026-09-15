@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>WE 场景壁纸实验室 — 分层渲染</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0b0d12;
+    --panel: #141821;
+    --line: #232a38;
+    --text: #d7dce6;
+    --muted: #8792a6;
+    --accent: #7cc4ff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 13px/1.5 "Segoe UI", system-ui, -apple-system, sans-serif;
+    display: grid;
+    grid-template-columns: 1fr 360px;
+    grid-template-rows: auto 1fr;
+    height: 100vh;
+  }
+  header {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--line);
+    background: var(--panel);
+  }
+  header h1 { font-size: 14px; margin: 0; font-weight: 600; letter-spacing: .3px; }
+  header .spacer { flex: 1; }
+  .stage { position: relative; overflow: hidden; background: #000; }
+  .stage.drop-target::after {
+    content: "松开以载入 scene.pkg";
+    position: absolute; inset: 12px; display: grid; place-items: center;
+    border: 2px dashed var(--accent); border-radius: 10px;
+    color: var(--accent); background: rgba(124, 196, 255, .08); pointer-events: none;
+  }
+  .wallpaper-picker select { max-width: 220px; }
+  .file-button input { display: none; }
+  .file-button {
+    border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px;
+    color: var(--text); cursor: pointer;
+  }
+  .file-button:hover { border-color: var(--accent); color: var(--accent); }
+  canvas { display: block; width: 100%; height: 100%; }
+  aside {
+    border-left: 1px solid var(--line);
+    background: var(--panel);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  aside h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0; padding: 12px 14px 6px; }
+  .controls { padding: 0 14px 10px; display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; border-bottom: 1px solid var(--line); }
+  label { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+  button, select, input[type=range] { font: inherit; }
+  button {
+    background: #1d2431; color: var(--text); border: 1px solid var(--line);
+    border-radius: 6px; padding: 4px 10px; cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button.active { border-color: var(--accent); color: var(--accent); }
+  .layers { overflow: auto; flex: 1; padding: 6px 8px 20px; }
+  .layer {
+    display: grid;
+    grid-template-columns: 18px 1fr auto;
+    gap: 8px;
+    align-items: baseline;
+    padding: 5px 6px;
+    border-radius: 6px;
+    cursor: pointer;
+    border: 1px solid transparent;
+  }
+  .layer:hover { background: #1a2029; }
+  .layer.selected { border-color: var(--accent); background: #17202c; }
+  .layer .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .layer .meta { color: var(--muted); font-size: 11px; }
+  .layer .tag { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+  .layer.dim .name { color: #5d6675; }
+  .status { padding: 8px 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; white-space: pre-wrap; max-height: 150px; overflow: auto; }
+  .drift-control { width: 100%; justify-content: flex-start; }
+  .drift-control input[type=range] { flex: 1; max-width: 140px; }
+  .drift-control span { width: 34px; text-align: right; color: var(--text); font-variant-numeric: tabular-nums; }
+  .params { border-top: 1px solid var(--line); max-height: 46%; overflow: auto; padding: 0 0 8px; }
+  .params h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0; padding: 10px 14px 6px; position: sticky; top: 0; background: var(--panel); }
+  .params table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  .params td { padding: 2px 14px; vertical-align: top; }
+  .params td.value { color: var(--text); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .params td.origin { color: var(--muted); }
+  .params tr.preset td.value { color: var(--accent); }
+  .params .component { padding: 6px 14px 2px; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Wallpaper Engine 场景壁纸实验室</h1>
+  <label class="wallpaper-picker" title="切换测试用的壁纸（scene.pkg 或未打包的工程目录）">
+    壁纸
+    <select id="wallpaper"><option value="">加载中…</option></select>
+    <button id="wallpaper-refresh" title="重新扫描 fixtures/">↻</button>
+  </label>
+  <label class="file-button" title="打开本机的 scene.pkg（也可以直接把文件拖进画面）">
+    本地 .pkg
+    <input id="wallpaper-file" type="file" accept=".pkg" />
+  </label>
+  <span id="scene-info" class="meta" style="color:var(--muted)"></span>
+  <span class="spacer"></span>
+  <button id="play">暂停</button>
+  <button id="isolate">单独显示</button>
+  <button id="reset">重置</button>
+</header>
+<div class="stage"><canvas id="canvas"></canvas></div>
+<aside>
+  <h2>图层 <span id="layer-count" style="color:var(--muted)"></span></h2>
+  <div class="controls">
+    <label>适配
+      <select id="fit">
+        <option value="cover" selected>裁剪填满</option>
+        <option value="contain">完整显示</option>
+        <option value="stretch">拉伸</option>
+      </select>
+    </label>
+    <label>时间 <input id="time" type="range" min="0" max="20" step="0.05" value="0" /></label>
+    <label><input id="parallax" type="checkbox" /> 视差</label>
+    <label id="engine-label" class="hidden" title="读取本机安装的 Wallpaper Engine 资源（贴图 / 材质 / 着色器），缺失时才回退到程序化近似"><input id="engine" type="checkbox" /> 引擎资源</label>
+    <label title="整体上浮 + 主方向漂移；关闭后完全按引擎语义（各向同性湍流）"><input id="drift" type="checkbox" checked /> 上浮漂移</label>
+    <label class="drift-control">上升 <input id="drift-rise" type="range" min="0" max="320" step="5" value="120" /><span id="drift-rise-value">120</span></label>
+    <label class="drift-control">漂移 <input id="drift-speed" type="range" min="0" max="400" step="10" value="200" /><span id="drift-speed-value">200</span></label>
+    <label class="drift-control">右向 <input id="drift-ratio" type="range" min="0" max="1" step="0.05" value="0.8" /><span id="drift-ratio-value">0.80</span></label>
+  </div>
+  <div class="layers" id="layers"></div>
+  <div class="params hidden" id="params">
+    <h3 id="params-title">粒子参数</h3>
+    <div id="params-body"></div>
+  </div>
+  <div class="status" id="status">加载中…</div>
+</aside>
+<script type="module" src="./main.js"></script>
+</body>
+</html>

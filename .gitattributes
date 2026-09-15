@@ -1,0 +1,14 @@
+# 仓库里统一用 LF，避免 Windows 检出后到处是换行改动
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.pkg binary
+*.tex binary
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary
+*.dxs binary

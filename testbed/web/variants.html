@@ -1,0 +1,37 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>图层与特效对比</title>
+<style>body{margin:0;background:#111;color:#ddd;font:12px sans-serif} figure{margin:4px;display:inline-block} canvas{display:block;width:480px;height:270px;image-rendering:pixelated} figcaption{padding:2px 4px}</style>
+</head>
+<body>
+<div id="grid"></div>
+<script type="module">
+import { PackageArchive, createSceneFromArchive, SceneRenderer, describeLayers } from "../../packages/we-scene/dist/index.js";
+const grid = document.getElementById("grid");
+const response = await fetch("../../fixtures/scene-we-1/scene.pkg");
+const archive = new PackageArchive(await response.arrayBuffer());
+const variants = [
+  { label: "layer 17 only", only: [17], effects: false },
+  { label: "layer 17 + waterwaves", only: [17], effects: true },
+  { label: "all layers, no effects", only: null, effects: false },
+  { label: "all layers + effects", only: null, effects: true }
+];
+for (const variant of variants) {
+  const figure = document.createElement("figure");
+  const canvas = document.createElement("canvas");
+  canvas.width = 960; canvas.height = 540;
+  const caption = document.createElement("figcaption");
+  caption.textContent = variant.label;
+  figure.append(canvas, caption);
+  grid.append(figure);
+  const scene = createSceneFromArchive(archive);
+  const renderer = new SceneRenderer({ canvas, archive, scene, disableEffects: !variant.effects, onlyLayers: variant.only });
+  await renderer.ready();
+  renderer.render(6, {});
+  await new Promise((r) => setTimeout(r, 1200));
+  renderer.render(6.2, {});
+  console.log("RENDER " + variant.label + " drawn=" + renderer.layerStats.filter((s) => s.drawn).length + " errors=" + renderer.shaderErrors.length);
+}
+window.__ready = true;
+window.__wallpaper = { layerCount: 33, renderer: { layerStats: [], shaderErrors: [], diagnostics: [] } };
+</script>
+</body></html>

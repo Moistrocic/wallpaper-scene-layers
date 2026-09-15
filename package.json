@@ -1,0 +1,33 @@
+{
+  "name": "web-we-scene",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Wallpaper Engine 场景壁纸的浏览器分层渲染库 + 测试环境",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc -p packages/we-scene",
+    "typecheck": "tsc -p packages/we-scene --noEmit",
+    "clean": "node -e \"fs.rmSync('packages/we-scene/dist',{recursive:true,force:true})\"",
+    "testbed": "node testbed/server.mjs",
+    "lab": "node testbed/server.mjs",
+    "verify": "node testbed/scripts/verify.mjs",
+    "snapshot": "node testbed/scripts/snapshot.mjs",
+    "extract": "node packages/we-scene/bin/we-scene.mjs",
+    "presets": "node testbed/scripts/presets.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Moistrocic/web-we-scene.git"
+  },
+  "homepage": "https://github.com/Moistrocic/web-we-scene#readme",
+  "bugs": {
+    "url": "https://github.com/Moistrocic/web-we-scene/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
