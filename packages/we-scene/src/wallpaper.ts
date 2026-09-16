@@ -38,7 +38,23 @@ export interface WallpaperOptions {
    * 因此运行中修改它的字段即可实时生效，方便做调参界面。
    */
   particles?: ParticleOptions;
+  /**
+   * 只加载部分图层（按 id 或名称筛选）。被排除的图层不会加载贴图、编译着色器或绘制，
+   * 因此适合"这张壁纸只用其中几层"的适配场景。
+   *
+   * `include` 给定时只保留匹配的图层（祖先会一并保留，保证变换链完整）；
+   * `exclude` 命中的图层连同其子层一起移除。
+   */
+  layers?: LayerFilter;
   onDiagnostic?: (message: string) => void;
+}
+
+/** 图层筛选条件。 */
+export interface LayerFilter {
+  /** 只保留这些图层（id 或名称）。 */
+  include?: Array<number | string>;
+  /** 排除这些图层（id 或名称）及其子层。 */
+  exclude?: Array<number | string>;
 }
 
 export interface Wallpaper {
@@ -73,6 +89,36 @@ export async function loadPackage(source: WallpaperSource): Promise<PackageArchi
   return new PackageArchive(source);
 }
 
+/** 按 id 或名称匹配。 */
+function matchesLayer(layer: SceneLayer, entries: Array<number | string>): boolean {
+  return entries.some((entry) => (typeof entry === "number" ? layer.id === entry : layer.name === entry));
+}
+
+/** 把 `WallpaperOptions.layers` 应用到场景上（就地移除图层）。 */
+export function applyLayerFilter(scene: SceneDocument, filter: LayerFilter): { kept: number; removed: number } {
+  const excluded = new Set<number>();
+  if (filter.exclude?.length) {
+    for (const layer of scene.layers) {
+      if (!matchesLayer(layer, filter.exclude)) continue;
+      // 命中的图层连同其所有子层一起排除。
+      const stack = [layer.id];
+      while (stack.length) {
+        const id = stack.pop()!;
+        if (excluded.has(id)) continue;
+        excluded.add(id);
+        const child = scene.getLayer(id);
+        if (child) stack.push(...child.childIds);
+      }
+    }
+  }
+  const include = filter.include;
+  return scene.retainLayers((layer) => {
+    if (excluded.has(layer.id)) return false;
+    if (!include || include.length === 0) return true;
+    return matchesLayer(layer, include);
+  });
+}
+
 export async function loadPackageFromBlob(blob: Blob): Promise<PackageArchive> {
   return new PackageArchive(await blob.arrayBuffer());
 }
@@ -96,6 +142,8 @@ export async function createWallpaper(options: WallpaperOptions): Promise<Wallpa
     bundle = undefined;
   }
   const scene = archive ? createSceneFromArchive(archive) : createSceneFromBundle(bundle!);
+  // 只保留指定图层：被排除的图层连贴图都不会加载。
+  if (options.layers) applyLayerFilter(scene, options.layers);
   const rendererOptions: SceneRendererOptions = {
     canvas: options.canvas,
     archive,

@@ -83,4 +83,5 @@ export { createCapabilities, RenderTarget, RenderTargetPool, type Capabilities, 
 export * as mat4 from "./util/math.js";
 export { readNumber, readVec, BinaryReader } from "./util/bytes.js";
 export { describeLayers, summariseScene, engineAssetDependencies, describeLayerParticleParameters, type LayerDescription } from "./scene/inspect.js";
-export { loadPackage, loadPackageFromBlob, createWallpaper, type Wallpaper, type WallpaperOptions, type WallpaperSource } from "./wallpaper.js";
+export { loadPackage, loadPackageFromBlob, createWallpaper, applyLayerFilter, type LayerFilter, type Wallpaper, type WallpaperOptions, type WallpaperSource } from "./wallpaper.js";
+export { ROSSI_WALLPAPER, createRossiWallpaper, type RossiWallpaperOptions } from "./presets/rossi.js";

@@ -1,4 +1,4 @@
-import { createWallpaper, describeLayerParticleParameters, describeLayers, summariseScene } from "../../packages/we-scene/dist/index.js";
+import { ROSSI_WALLPAPER, createRossiWallpaper, createWallpaper, describeLayerParticleParameters, describeLayers, summariseScene } from "../../packages/we-scene/dist/index.js";
 
 const params = new URLSearchParams(location.search);
 const snapshot = params.get("snapshot") === "1";
@@ -16,11 +16,20 @@ const onlyLayers = params.get("layers");
 let useEngineAssets = params.get("engine") === "1";
 
 /**
+ * 用哪个接口加载：`normal` = 接口一（`createWallpaper`），
+ * `rossi` = 接口二（`createRossiWallpaper`，洛茜壁纸专用预设）。
+ * ?api=rossi 可以直接指定。
+ */
+let apiMode = params.get("api") === "rossi" ? "rossi" : "normal";
+
+/** 接口一的默认粒子参数：整体上升，约 80% 向右、20% 向左。 */
+const DEFAULT_DRIFT = { rise: 120, speed: 200, forwardRatio: 0.8, spread: 0.6 };
+
+/**
  * 粒子模拟参数。渲染器持有这个对象的引用，滑块改动后下一帧即时生效，无需重建。
- * 默认开启「上浮漂移」：所有粒子整体上升，约 80% 向右、20% 向左。
  */
 const particleOptions = {
-  drift: { rise: 120, speed: 200, forwardRatio: 0.8, spread: 0.6 }
+  drift: { ...DEFAULT_DRIFT }
 };
 
 const canvas = document.getElementById("canvas");
@@ -62,7 +71,7 @@ function sourceOptions(current) {
 
 async function boot() {
   const started = performance.now();
-  wallpaper = await createWallpaper({
+  const common = {
     canvas,
     ...sourceOptions(source),
     fit: document.getElementById("fit").value,
@@ -70,9 +79,15 @@ async function boot() {
     // ?bg=0 在纯黑背景上渲染，便于单独观察加法混合的粒子层。
     clearColor: params.get("bg") === "0" ? [0, 0, 0] : undefined,
     engineAssets: useEngineAssets ? "/we-assets/" : undefined,
-    particles: particleOptions,
+    // 接口二自带粒子预设，不在这里覆盖。
+    ...(apiMode === "rossi" ? {} : { particles: particleOptions }),
     onDiagnostic: (message) => log("! " + message)
-  });
+  };
+  // 接口一：普通加载；接口二：洛茜专用（预设图层 + 预设漂移参数，由库决定）。
+  wallpaper =
+    apiMode === "rossi"
+      ? await createRossiWallpaper(common)
+      : await createWallpaper(common);
   const loadMs = Math.round(performance.now() - started);
 
   const summary = summariseScene(wallpaper.scene);
@@ -129,6 +144,11 @@ async function boot() {
     if (layer) showParameters(layer);
   }
 
+  log(
+    apiMode === "rossi"
+      ? `接口：洛茜专用（预设图层 ${ROSSI_WALLPAPER.layers.include.join(" / ")}，漂移 ${ROSSI_WALLPAPER.particles.drift.rise}/${ROSSI_WALLPAPER.particles.drift.speed}/${ROSSI_WALLPAPER.particles.drift.forwardRatio}）`
+      : "接口：普通加载"
+  );
   log(
     wallpaper.archive
       ? `包格式 ${wallpaper.archive.magic} v${wallpaper.archive.version}，${wallpaper.archive.list().length} 个文件`
@@ -324,20 +344,60 @@ const driftInputs = {
   speed: document.getElementById("drift-speed"),
   forwardRatio: document.getElementById("drift-ratio")
 };
-driftToggle.checked = Boolean(particleOptions.drift);
+const driftValueLabels = {
+  rise: document.getElementById("drift-rise-value"),
+  speed: document.getElementById("drift-speed-value"),
+  forwardRatio: document.getElementById("drift-ratio-value")
+};
+
+/** 把滑块与标签同步成给定的一组漂移参数。 */
+function showDrift(preset, enabled) {
+  for (const [key, input] of Object.entries(driftInputs)) {
+    input.value = String(preset[key]);
+    input.disabled = !enabled;
+    driftValueLabels[key].textContent = key === "forwardRatio" ? Number(preset[key]).toFixed(2) : String(preset[key]);
+  }
+  driftToggle.checked = enabled;
+  driftToggle.disabled = !enabled;
+}
+
 driftToggle.onchange = () => {
-  particleOptions.drift = driftToggle.checked ? { rise: 120, speed: 200, forwardRatio: 0.8, spread: 0.6 } : undefined;
-  for (const input of Object.values(driftInputs)) input.disabled = !driftToggle.checked;
+  particleOptions.drift = driftToggle.checked ? { ...DEFAULT_DRIFT } : undefined;
+  showDrift(driftToggle.checked ? DEFAULT_DRIFT : DEFAULT_DRIFT, driftToggle.checked);
   render();
 };
 for (const [key, input] of Object.entries(driftInputs)) {
-  const label = document.getElementById(`drift-${key === "forwardRatio" ? "ratio" : key}-value`);
   input.oninput = () => {
     const value = Number(input.value);
     if (particleOptions.drift) particleOptions.drift[key] = value;
-    label.textContent = key === "forwardRatio" ? value.toFixed(2) : String(value);
+    driftValueLabels[key].textContent = key === "forwardRatio" ? value.toFixed(2) : String(value);
   };
 }
+
+/**
+ * 接口切换：`normal` 用接口一（粒子参数由滑块控制），
+ * `rossi` 用接口二 —— 图层与漂移参数都取自库里的洛茜预设，滑块只作展示。
+ */
+const apiSelect = document.getElementById("api");
+function applyApiMode(mode, shouldReload = false) {
+  apiMode = mode === "rossi" ? "rossi" : "normal";
+  apiSelect.value = apiMode;
+  const rossi = apiMode === "rossi";
+  if (rossi) {
+    // 接口二自己带参数：这里不覆盖 particleOptions，交给 createRossiWallpaper。
+    showDrift(ROSSI_WALLPAPER.particles.drift, false);
+  } else {
+    showDrift(DEFAULT_DRIFT, true);
+    Object.assign(particleOptions, { drift: { ...DEFAULT_DRIFT } });
+  }
+  const url = new URL(location.href);
+  if (rossi) url.searchParams.set("api", "rossi");
+  else url.searchParams.delete("api");
+  history.replaceState(null, "", url);
+  if (shouldReload) void reload();
+}
+apiSelect.onchange = () => applyApiMode(apiSelect.value, true);
+applyApiMode(apiMode);
 
 /**
  * 壁纸切换器：清单来自 /api/wallpapers（服务器扫描 fixtures/ 下的 scene.pkg 与工程目录），

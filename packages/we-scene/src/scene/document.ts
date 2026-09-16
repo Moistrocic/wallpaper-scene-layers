@@ -117,6 +117,34 @@ export class SceneDocument {
     return this.byId.get(id);
   }
 
+  /**
+   * 只保留符合条件的图层，其余**从场景里移除**——它们不会被加载、编译或绘制。
+   *
+   * 被保留图层的祖先会一并保留（否则父子变换链会断）。用于"只渲染某几张图层"的场景
+   * （例如只保留背景美术 + 某个粒子层）。
+   */
+  retainLayers(selector: (layer: SceneLayer) => boolean): { kept: number; removed: number } {
+    const keep = new Set<number>();
+    for (const layer of this.layers) if (selector(layer)) keep.add(layer.id);
+    // 补上祖先，保证变换链完整。
+    for (const id of [...keep]) {
+      let layer = this.byId.get(id);
+      while (layer && layer.parentId !== null) {
+        const parent = this.byId.get(layer.parentId);
+        if (!parent) break;
+        keep.add(parent.id);
+        layer = parent;
+      }
+    }
+    const removed = this.layers.filter((layer) => !keep.has(layer.id));
+    if (removed.length === 0) return { kept: this.layers.length, removed: 0 };
+    this.layers.splice(0, this.layers.length, ...this.layers.filter((layer) => keep.has(layer.id)));
+    this.order.splice(0, this.order.length, ...this.layers.map((layer) => layer.id));
+    for (const layer of removed) this.byId.delete(layer.id);
+    for (const layer of this.layers) layer.childIds = layer.childIds.filter((id) => keep.has(id));
+    return { kept: this.layers.length, removed: removed.length };
+  }
+
   /** Root layers (no parent), in painting order. */
   get rootLayers(): SceneLayer[] {
     return this.layers.filter((layer) => layer.parentId === null || !this.byId.has(layer.parentId));

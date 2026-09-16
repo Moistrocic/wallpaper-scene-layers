@@ -36,6 +36,36 @@ npm install @web-we-scene/runtime
 </script>
 ```
 
+## 两个接口
+
+| 接口 | 用途 |
+| --- | --- |
+| **接口一** `createWallpaper(options)` | 通用加载：任何场景壁纸（`scene.pkg` / 未打包工程目录），参数全开放 |
+| **接口二** `createRossiWallpaper(options)` | **洛茜（Rossi）壁纸专用**：等于接口一 + 预设参数，可传同名参数覆盖 |
+
+```ts
+import { createWallpaper, createRossiWallpaper, ROSSI_WALLPAPER } from "@web-we-scene/runtime";
+
+// 接口一：普通加载
+const generic = await createWallpaper({ canvas, source: "/wallpapers/rossi.pkg" });
+
+// 接口二：洛茜专用（图层只留背景美术 + 灰烬大，粒子开启 240/200/0.7 的上浮漂移）
+const rossi = await createRossiWallpaper({ canvas, source: "/wallpapers/rossi.pkg" });
+
+console.log(ROSSI_WALLPAPER);
+// {
+//   name: "洛茜 Rossi",
+//   layers:   { include: ["142584003_p0", "灰烬大"] },   // 最基本的图层 + 灰烬大
+//   particles:{ drift: { rise: 240, speed: 200, forwardRatio: 0.7 } }
+// }
+```
+
+接口二用到的两个通用能力（接口一同样可用）：
+
+* `layers: { include: [...], exclude: [...] }` —— **按 id 或名称筛选图层**。被排除的图层
+  连贴图都不会加载、着色器也不会编译（保留图层的祖先会自动保留，父子变换链不会断）；
+* `particles.drift` —— 上浮漂移，`rise`（上升）/ `speed`（漂移）/ `forwardRatio`（向右比例）。
+
 ## 只取图层，不渲染
 
 ```ts

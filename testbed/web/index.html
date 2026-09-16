@@ -44,6 +44,7 @@
     color: var(--accent); background: rgba(124, 196, 255, .08); pointer-events: none;
   }
   .wallpaper-picker select { max-width: 220px; }
+  .api-picker select { max-width: 120px; }
   .file-button input { display: none; }
   .file-button {
     border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px;
@@ -107,6 +108,13 @@
     壁纸
     <select id="wallpaper"><option value="">加载中…</option></select>
     <button id="wallpaper-refresh" title="重新扫描 fixtures/">↻</button>
+  </label>
+  <label class="api-picker" title="选择用哪个接口加载：普通接口 / 洛茜专用接口（预设图层与粒子参数）">
+    接口
+    <select id="api">
+      <option value="normal" selected>普通加载</option>
+      <option value="rossi">洛茜专用</option>
+    </select>
   </label>
   <label class="file-button" title="打开本机的 scene.pkg（也可以直接把文件拖进画面）">
     本地 .pkg
