@@ -14,6 +14,7 @@ testbed/
 │   └── shader-probe.html   #   调试页：把场景用到的每个 shader+combo 逐个编译并报告结果
 └── scripts/
     ├── verify.mjs          # Node 端校验：包解析、场景图、纹理解码、引用完整性
+    ├── pixel-diff.mjs      # 两张 PNG 逐像素对比（验证 worker / 主线程画面一致）
     └── snapshot.mjs        # 无头 Chrome（CDP）截图 + 运行时诊断
 ```
 
@@ -42,6 +43,8 @@ npm run testbed    # http://127.0.0.1:5180/testbed/web/
 | `?wallpaper=<清单 id>` | 直接打开清单里的某张壁纸（切换器用的就是它）                           |
 | `?project=<目录 URL>`  | 渲染未打包的工程目录（走 `/api/files` 清单）                           |
 | `?api=rossi`           | 用**接口二**（洛茜专用）加载，等价于在页面上把「接口」切到「洛茜专用」 |
+| `&worker=1`            | 把渲染放进 worker（OffscreenCanvas），等价于勾选控制栏的「worker 渲染」 |
+| `&bench=2`             | 载入并预热后故意占住主线程 2 秒，报告这段时间出了多少帧（两条渲染路径对照） |
 
 ## 切换壁纸
 
@@ -87,6 +90,35 @@ npm run testbed    # http://127.0.0.1:5180/testbed/web/
 
 这些默认值固化在 `packages/we-scene/src/render/particle-defaults.ts`，与
 `we-scene <pkg> --particle-defaults` 输出的是同一张表。
+
+## worker 渲染（`?worker=1`）
+
+控制栏的「worker 渲染」开关（或 `?worker=1`）走 `createWorkerWallpaper()`：主线程只保留画布、
+尺寸与指针转发，解析 / 解码 / 编译 / 粒子模拟 / 每帧绘制都在 worker 里。因为切换需要重新移交画布
+控制权，开关是**改 URL 重新加载**，不是热切换。
+
+* 主线程的 `tick()` 在 worker 模式下只读回传统计（`statsIntervalMs: 400`）刷新状态栏，不参与绘制；
+* 时间轴、暂停、单独显示、适配、视差都通过消息改 worker 里的状态；
+* 粒子参数面板由 worker 算好回传（`wallpaper.particleParameters()`），主线程没有 `SceneDocument`；
+* 切换壁纸 / 引擎资源开关会 `dispose()` 旧 worker 并**换一块新的画布元素**——同一块画布的控制权
+  只能交出去一次。
+
+对照实验：
+
+```bash
+# 主线程渲染：主线程卡死时一帧都出不来
+npm run snapshot -- "http://127.0.0.1:5180/testbed/web/?snapshot=1&time=14&bench=2" build/bench-main.png
+# worker 渲染：同一段时间照常出帧
+npm run snapshot -- "http://127.0.0.1:5180/testbed/web/?snapshot=1&time=14&bench=2&worker=1" build/bench-worker.png
+
+# 逐像素对比两条路径（排除粒子层——粒子用 Math.random()，每次都不一样）
+npm run snapshot -- "http://127.0.0.1:5180/testbed/web/?snapshot=1&time=14&layers=17,57,61,62,63,64,65,66,67,68,82,50,54,75,87,91,95,105,114,115,116,117,118,122" build/main.png
+npm run snapshot -- "http://127.0.0.1:5180/testbed/web/?snapshot=1&time=14&worker=1&layers=17,57,61,62,63,64,65,66,67,68,82,50,54,75,87,91,95,105,114,115,116,117,118,122" build/worker.png
+npm run diff -- build/main.png build/worker.png      # 最大差值 0 = 完全一致
+```
+
+实测（无头 Chrome + SwiftShader，1280×720）：主线程被占住 2 秒时主线程渲染 0 帧、worker 渲染 66–68 帧；
+排除粒子层后两条路径的截图逐像素相同（921600 像素最大通道差值 0）。
 
 ## 引擎资源开关（`/we-assets/`）
 

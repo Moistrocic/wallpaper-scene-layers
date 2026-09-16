@@ -128,6 +128,84 @@ renderer.render(0, { mouse: [0, 0] });
 `maxLayerResolution`、`textScale`、`disableEffects`、`onlyLayers`、`fixedTime`、
 `onDiagnostic`、`textureFormatOverrides`。
 
+
+## 把渲染放进 worker（不卡主线程）
+
+`createWallpaper()` 的每一帧都在主线程上跑：解析包、解码贴图、编译着色器、粒子模拟、绘制。
+壁纸一大就会和宿主自己的界面抢主线程。`createWorkerWallpaper()` 把**整条管线**搬进 worker：
+
+* 主线程只做三件轻活：把画布 `transferControlToOffscreen()` 交出去、尺寸变化时转发一条消息、
+  指针移动时转发坐标（最多每 8ms 合并一次）；
+* worker 里完成下载、`scene.pkg` 解析、`.tex` 解码、着色器编译、粒子模拟与每一帧绘制；
+* 帧循环由 worker 自己的定时器推动（`driver: "timer"`），所以**主线程被占用时壁纸照常播放**。
+
+```ts
+import { createWorkerWallpaper } from "wallpaper-scene-layers";
+
+const wallpaper = await createWorkerWallpaper({ canvas, source: "scene.pkg" });
+console.table(wallpaper.layers.map((l) => ({ id: l.id, name: l.name, type: l.type })));
+wallpaper.setLayerVisible("灰烬光束", false);   // 消息发给 worker，下一帧生效
+```
+
+洛茜壁纸有对应的 `createRossiWorkerWallpaper()`（参数与 `createRossiWallpaper()` 完全一致）。
+
+### 谁驱动帧循环
+
+| `driver` | 谁出帧 | 适用 |
+| --- | --- | --- |
+| `"timer"`（默认） | worker 自己的定时器，按 `fps`（默认 60） | 壁纸播放：主线程卡住也不掉帧 |
+| `"manual"` | 宿主调用 `renderFrame(t)` 时才画一帧 | 宿主已有自己的循环，或需要逐帧确定性 |
+
+`warmUp(seconds)` 在 worker 里按 1/60 步长把场景推进到指定时刻（粒子、特效、文字都到位），
+主线程只等一条消息——封面与截图用它，不必在主线程跑几百帧。页面切到后台时浏览器会限制定时器，
+worker 的帧率也会跟着降；需要完全自己掌控节奏就用 `driver: "manual"`。
+
+### 宿主侧 API
+
+| 成员 | 说明 |
+| --- | --- |
+| `layers` / `summary` / `archiveInfo` / `capabilities` | worker 解析完回传的清单与概览（主线程没有 `SceneDocument`） |
+| `shaderErrors` / `diagnostics` / `engineAssets` | 着色器提示、非致命问题、实际读到的引擎资源 |
+| `start()` / `stop()` | 开始 / 停止帧循环（`timer` 模式） |
+| `renderFrame(t)` | 渲染 t 秒这一帧 |
+| `warmUp(seconds, step?)` | 在 worker 里推进到指定时刻 |
+| `setLayerVisible(id \| name, visible)` | 显隐图层 |
+| `setFit(fit)` / `setCameraParallax(on)` | 运行中改适配模式 / 视差 |
+| `requestStats()` | 取一次 `{ stats, fps, time, frames }`；`statsIntervalMs > 0` 时也会自动推 |
+| `particleParameters(id)` | 某个粒子图层展开后的参数表（参数面板用） |
+| `flush()` / `ready()` | 等此前命令执行完 / 等初始化完成 |
+| `resize()` / `on(listener)` / `dispose()` | 重新量尺寸 / 订阅 stats、diagnostic、error、disposed / 关掉 worker |
+
+上面所有会改状态的方法都返回 Promise（`dispose()` 除外），消息按发送顺序执行。
+
+### 环境与回退
+
+* 需要 `OffscreenCanvas` 与 `transferControlToOffscreen()`（Chrome/Edge 69+、Firefox 105+、
+  Safari 16.4+）。不支持时自动退回主线程渲染并给出一条 `onDiagnostic`，返回的对象形状不变
+  （`offscreen: false`）；不想要回退就传 `fallbackToMainThread: false`。
+* 除驱动相关的选项外，其余选项（`source` / `project` / `layers` / `particles` / `engineAssets` /
+  `fit` / `clearColor` / `maxLayerResolution` / `textScale` / `textureFormatOverrides` …）都会转给
+  worker。函数与类实例不能过 worker 边界，所以 `onDiagnostic` 留在主线程，由 worker 用消息转发；
+  `EngineAssets` 实例会被换等价的 `baseUrl` / `directory` 选项。
+* **一块画布的控制权只能交出去一次**。切换壁纸要换一块新的画布元素（测试环境的 `reload()` 就是
+  这么做的），不能把同一块画布先后交给两个 worker。
+* 打包器里可以自己构造 worker 再传进来：
+  `worker: () => new Worker(new URL("wallpaper-scene-layers/worker", import.meta.url), { type: "module" })`；
+  在自己的 worker 脚本里则 `import { startRenderWorker }` 之后调用它接管消息循环。
+
+### 实测
+
+同样输入下（用 `?layers=` 排除粒子层，避免随机性）worker 与主线程渲染**逐像素一致**：
+1280×720 共 921600 像素，最大通道差值 0。主线程被占住 2 秒时：
+
+| 渲染位置 | 这 2 秒内出的帧数 |
+| --- | --- |
+| 主线程 | 0 |
+| worker | 66–68（≈34 fps，无头 Chrome + SwiftShader 软件渲染） |
+
+粒子用的是 `Math.random()`，所以**含粒子层的截图每次都不会完全相同**（主线程连续两次也一样，
+平均差值 9.1）；做像素级对比时请排除粒子层。
+
 ## 包与纹理格式
 
 ```ts

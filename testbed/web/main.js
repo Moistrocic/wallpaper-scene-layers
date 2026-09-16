@@ -1,4 +1,4 @@
-import { ROSSI_WALLPAPER, createRossiWallpaper, createWallpaper, describeLayerParticleParameters, describeLayers, summariseScene } from "../../packages/we-scene/dist/index.js";
+import { ROSSI_WALLPAPER, createRossiWallpaper, createRossiWorkerWallpaper, createWallpaper, createWorkerWallpaper, describeLayerParticleParameters, describeLayers, summariseScene } from "../../packages/we-scene/dist/index.js";
 
 const params = new URLSearchParams(location.search);
 const snapshot = params.get("snapshot") === "1";
@@ -14,6 +14,10 @@ const fixedTime = params.get("time") ? Number(params.get("time")) : snapshot ? 6
 const onlyLayers = params.get("layers");
 // ?engine=1 读取本机 Wallpaper Engine 资源（服务端 /we-assets/ 只读代理）
 let useEngineAssets = params.get("engine") === "1";
+// ?worker=1 把渲染放进 worker（OffscreenCanvas）：主线程只留画布、尺寸与指针转发。
+const workerMode = params.get("worker") === "1";
+// ?bench=2 载入后故意占住主线程 2 秒，对比两条渲染路径还能出多少帧。
+const benchSeconds = Number(params.get("bench") ?? 0) || 0;
 
 /**
  * 用哪个接口加载：`normal` = 接口一（`createWallpaper`），
@@ -32,7 +36,15 @@ const particleOptions = {
   drift: { ...DEFAULT_DRIFT }
 };
 
-const canvas = document.getElementById("canvas");
+/** 当前画布元素；worker 模式下重建渲染器时要换一块新的（控制权交出去就收不回来）。 */
+let canvas = document.getElementById("canvas");
+
+function replaceCanvas() {
+  const next = canvas.cloneNode(false);
+  canvas.replaceWith(next);
+  canvas = next;
+  return next;
+}
 const layerList = document.getElementById("layers");
 const statusBox = document.getElementById("status");
 const sceneInfo = document.getElementById("scene-info");
@@ -83,17 +95,25 @@ async function boot() {
     ...(apiMode === "rossi" ? {} : { particles: particleOptions }),
     onDiagnostic: (message) => log("! " + message)
   };
+  // worker 模式：帧由 worker 自己的定时器推动（主线程卡住也照画）；截图模式不自动开始，
+  // 这样画面固定在 warmUp 指定的时刻，便于和主线程渲染逐像素对比。
+  const workerExtras = workerMode ? { driver: "timer", statsIntervalMs: 400, autoStart: !snapshot } : {};
   // 接口一：普通加载；接口二：洛茜专用（预设图层 + 预设漂移参数，由库决定）。
   wallpaper =
     apiMode === "rossi"
-      ? await createRossiWallpaper(common)
-      : await createWallpaper(common);
+      ? workerMode
+        ? await createRossiWorkerWallpaper({ ...common, ...workerExtras })
+        : await createRossiWallpaper(common)
+      : workerMode
+        ? await createWorkerWallpaper({ ...common, ...workerExtras })
+        : await createWallpaper(common);
   const loadMs = Math.round(performance.now() - started);
 
-  const summary = summariseScene(wallpaper.scene);
+  // worker 模式下场景在主线程是不存在的：概览、图层清单、参数表都由 worker 回传。
+  const summary = workerMode ? wallpaper.summary : summariseScene(wallpaper.scene);
   sceneInfo.textContent = `${summary.resolution.width}x${summary.resolution.height} · ${summary.layerCount} 个图层 · ${Object.entries(summary.layersByType).map(([k, v]) => k + ":" + v).join(" ")}`;
 
-  const layers = describeLayers(wallpaper.scene);
+  const layers = workerMode ? wallpaper.layers : describeLayers(wallpaper.scene);
   document.getElementById("layer-count").textContent = `(${layers.length})`;
   layerList.innerHTML = "";
   for (const layer of layers) {
@@ -150,16 +170,25 @@ async function boot() {
       : "接口：普通加载"
   );
   log(
-    wallpaper.archive
-      ? `包格式 ${wallpaper.archive.magic} v${wallpaper.archive.version}，${wallpaper.archive.list().length} 个文件`
-      : `工程目录模式：${wallpaper.bundle.list().length} 个文件（${source.path}）`
+    workerMode
+      ? wallpaper.archiveInfo
+        ? `包格式 ${wallpaper.archiveInfo.magic} v${wallpaper.archiveInfo.version}，${wallpaper.archiveInfo.files} 个文件`
+        : `工程目录模式（${source.path}）`
+      : wallpaper.archive
+        ? `包格式 ${wallpaper.archive.magic} v${wallpaper.archive.version}，${wallpaper.archive.list().length} 个文件`
+        : `工程目录模式：${wallpaper.bundle.list().length} 个文件（${source.path}）`
+  );
+  log(
+    workerMode
+      ? `渲染：worker（OffscreenCanvas · driver=${workerExtras.driver} · ${wallpaper.capabilities?.renderer ?? "unknown"}）`
+      : `渲染：主线程（${wallpaper.renderer.capabilities.renderer}）`
   );
   if (useEngineAssets) {
     const engine = await fetch("/api/engine-assets").then((response) => response.json()).catch(() => ({ available: false }));
     log(engine.available ? `引擎资源已启用：${engine.directory}` : "引擎资源不可用（本机未检测到 Wallpaper Engine）");
   }
   log(`解析 + 预加载耗时 ${loadMs} ms`);
-  const errors = wallpaper.renderer.shaderErrors;
+  const errors = workerMode ? wallpaper.shaderErrors : wallpaper.renderer.shaderErrors;
   log(errors.length ? `着色器提示：\n${errors.join("\n")}` : "全部着色器编译通过");
 
   if (snapshot) {
@@ -167,7 +196,10 @@ async function boot() {
     await warmUp(fixedTime ?? 6);
     document.title = "ready";
   } else {
-    wallpaper.scene.general.cameraParallax = document.getElementById("parallax").checked;
+    const parallax = document.getElementById("parallax").checked;
+    // worker 模式下场景对象在主线程不存在，只能通过接口改。
+    if (workerMode) void wallpaper.setCameraParallax(parallax);
+    else wallpaper.scene.general.cameraParallax = parallax;
     render();
     if (!loopStarted) {
       loopStarted = true;
@@ -175,6 +207,7 @@ async function boot() {
     }
   }
   alive = true;
+  if (benchSeconds > 0 && !snapshot) await runMainThreadBench(benchSeconds);
   window.__ready = true;
   window.__wallpaper = wallpaper;
 }
@@ -190,6 +223,8 @@ async function reload() {
     wallpaper.dispose();
     wallpaper = undefined;
   }
+  // 画布控制权已经移交给 worker，收不回来：换一块新画布再建渲染器。
+  if (workerMode) replaceCanvas();
   isolated = null;
   paramsPanel.classList.add("hidden");
   layerList.innerHTML = "";
@@ -213,12 +248,26 @@ const ORIGIN_LABEL = {
   "runtime-inferred": "库内推断"
 };
 
+let paramsRequest = 0;
+
 function showParameters(layer) {
   paramsPanel.classList.add("hidden");
   paramsBody.innerHTML = "";
   if (!layer || layer.type !== "particle") return;
+  if (workerMode) {
+    // 主线程没有 SceneDocument：参数表由 worker 算好回传。
+    const token = ++paramsRequest;
+    void wallpaper.particleParameters(layer.id).then((resolved) => {
+      if (token === paramsRequest && resolved) renderParameters(resolved);
+    });
+    return;
+  }
   const resolved = describeLayerParticleParameters(wallpaper.scene, layer.id);
   if (!resolved) return;
+  renderParameters(resolved);
+}
+
+function renderParameters(resolved) {
   paramsTitle.textContent = `粒子参数 · ${resolved.name}`;
   for (const system of resolved.systems) {
     const heading = document.createElement("div");
@@ -265,11 +314,23 @@ function applyIsolation() {
 }
 
 function render() {
+  if (!wallpaper) return;
+  if (workerMode) {
+    // 只发一条消息；绘制发生在 worker 里。
+    void wallpaper.renderFrame(clock);
+    return;
+  }
   wallpaper.renderer.render(clock, { mouse: mousePosition });
 }
 
 /** Advances the scene clock so particles and animations settle before a snapshot. */
 async function warmUp(seconds) {
+  if (workerMode) {
+    // 整段推进都在 worker 里跑：主线程只等一条消息。
+    await wallpaper.warmUp(seconds);
+    clock = seconds;
+    return;
+  }
   const step = 1 / 60;
   for (let t = 0; t <= seconds; t += step) {
     wallpaper.renderer.render(t, { mouse: mousePosition });
@@ -282,10 +343,25 @@ async function warmUp(seconds) {
 }
 
 let lastFrameTime = performance.now();
+/** 主线程自己画了多少帧（?bench= 对照用）。 */
+let framesDrawn = 0;
+
 function tick(timestamp) {
   const delta = (timestamp - lastFrameTime) / 1000;
   lastFrameTime = timestamp;
   if (!alive || !wallpaper) {
+    requestAnimationFrame(tick);
+    return;
+  }
+  if (workerMode) {
+    // worker 自己在出帧：主线程这个循环只读统计、刷 UI。
+    const stats = wallpaper.stats;
+    if (stats) {
+      clock = stats.time;
+      if (playing) timeSlider.value = String(clock % 20);
+      const drawn = stats.stats.filter((entry) => entry.drawn).length;
+      statusBox.textContent = `${stats.fps.toFixed(0)} fps（worker）· 实绘 ${drawn}/${wallpaper.layers.length} 层 · t=${clock.toFixed(2)}s · 第 ${stats.frames} 帧`;
+    }
     requestAnimationFrame(tick);
     return;
   }
@@ -294,10 +370,36 @@ function tick(timestamp) {
     timeSlider.value = String(clock % 20);
   }
   render();
+  framesDrawn++;
   const stats = wallpaper.renderer.layerStats.filter((entry) => entry.drawn).length;
   statusBox.textContent = `${Math.round(1 / Math.max(delta, 1e-4))} fps · 实绘 ${stats}/${wallpaper.layerCount} 层 · t=${clock.toFixed(2)}s`;
   for (const error of wallpaper.renderer.diagnostics.slice(-3)) if (!statusBox.textContent.includes(error)) statusBox.textContent += "\n! " + error;
   requestAnimationFrame(tick);
+}
+
+/**
+ * 主线程阻塞对照（?bench=<秒>）：把主线程占住一段时间，数这段时间里画面出了多少帧。
+ * worker 渲染时帧来自 worker 自己的定时器，主线程卡住照出；主线程渲染则直接停摆。
+ */
+async function runMainThreadBench(seconds) {
+  const count = async () => (workerMode ? (await wallpaper.requestStats()).frames : framesDrawn);
+  // 等 worker 热起来（首帧要编译着色器，SwANGLE 下可能占满一两秒），否则量到的是启动耗时。
+  if (workerMode) {
+    const deadline = performance.now() + 8000;
+    for (;;) {
+      const stats = await wallpaper.requestStats();
+      if (stats.frames >= 60 || performance.now() > deadline) break;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+  }
+  const before = await count();
+  const started = performance.now();
+  while (performance.now() - started < seconds * 1000) {
+    // 故意占住主线程（等价于宿主在做重活）。
+  }
+  const after = await count();
+  window.__bench = { mode: workerMode ? "worker" : "main", seconds, frames: after - before, fps: +((after - before) / seconds).toFixed(1) };
+  log(`主线程阻塞 ${seconds}s：${workerMode ? "worker" : "主线程"}渲染出了 ${after - before} 帧（${((after - before) / seconds).toFixed(1)} fps）`);
 }
 
 let mousePosition;
@@ -307,12 +409,20 @@ window.addEventListener("pointermove", (event) => {
 });
 
 document.getElementById("fit").onchange = (event) => {
+  if (workerMode) {
+    void wallpaper.setFit(event.target.value);
+    return;
+  }
   wallpaper.renderer.options.fit = event.target.value;
   render();
 };
 document.getElementById("play").onclick = (event) => {
   playing = !playing;
   event.target.textContent = playing ? "暂停" : "播放";
+  if (workerMode) {
+    if (playing) wallpaper.start();
+    else wallpaper.stop();
+  }
 };
 document.getElementById("isolate").onclick = () => {
   isolated = isolated === null ? wallpaper.layers[wallpaper.layers.length - 1].id : null;
@@ -330,9 +440,14 @@ timeSlider.oninput = (event) => {
   playing = false;
   document.getElementById("play").textContent = "播放";
   clock = Number(event.target.value);
+  if (workerMode) wallpaper.stop();
   render();
 };
 document.getElementById("parallax").onchange = (event) => {
+  if (workerMode) {
+    void wallpaper.setCameraParallax(event.target.checked);
+    return;
+  }
   wallpaper.scene.general.cameraParallax = event.target.checked;
   render();
 };
@@ -506,6 +621,18 @@ engineToggle.onchange = async () => {
   statusBox.textContent = useEngineAssets ? "重新加载：使用本机引擎资源…" : "重新加载：使用内置近似资源…";
   await reload();
 };
+
+// worker 渲染开关：画布控制权一旦移交就不能收回，切换直接改 URL 重载。
+const workerToggle = document.getElementById("worker");
+if (workerToggle) {
+  workerToggle.checked = workerMode;
+  workerToggle.onchange = () => {
+    const url = new URL(location.href);
+    if (workerToggle.checked) url.searchParams.set("worker", "1");
+    else url.searchParams.delete("worker");
+    location.href = url.toString();
+  };
+}
 
 resolveInitialSource()
   .then(() => {

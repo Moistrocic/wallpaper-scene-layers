@@ -5,7 +5,8 @@
 
 - 纯浏览器端解析：`PKGV` 包容器、`scene.json`、模型 / 材质 / 特效 / 粒子预设、`.tex` 纹理，**不需要安装 Wallpaper Engine**；
 - 每个 object 都是一个图层，可读取、显示 / 隐藏、单独渲染、按需筛选——是分层的工具库，不是黑盒播放器；
-- 零依赖、纯 ESM，可被打包器引用，也可直接 `<script type="module">` 引入。
+- 零依赖、纯 ESM，可被打包器引用，也可直接 `<script type="module">` 引入；
+- 可选**把整条渲染管线放进 worker**（OffscreenCanvas）：主线程只留画布与输入，宿主界面卡住时壁纸照常播放。
 
 ## 定位：通用分层渲染 + 洛茜壁纸专用适配
 
@@ -77,6 +78,30 @@ console.table(
 所以被排除的图层不会占用显存、也不会编译它们的着色器。
 
 测试环境里对应的是：右侧图层列表的勾选框、点击某层「单独显示」、以及控制栏的「接口」下拉框。
+
+## 不卡主线程：worker 渲染
+
+默认接口 `createWallpaper()` 在主线程上画。库另外提供 `createWorkerWallpaper()`：下载、解析
+`scene.pkg`、解码 `.tex`、编译着色器、粒子模拟与每一帧绘制全部在 worker 里，主线程只负责把画布
+移交出去、转发尺寸与指针。
+
+```ts
+import { createWorkerWallpaper } from "wallpaper-scene-layers";
+
+const wallpaper = await createWorkerWallpaper({ canvas, source: "scene.pkg" });
+wallpaper.setLayerVisible("灰烬光束", false);   // 消息发给 worker
+await wallpaper.warmUp(14);                      // 预热到 t=14s（封面 / 截图）
+```
+
+* 帧循环由 worker 自己的定时器推动，**主线程被占住时壁纸照常播放**（实测：主线程卡死 2 秒，
+  主线程渲染 0 帧，worker 渲染 66–68 帧）；
+* 同样输入下两条路径**逐像素一致**（1280×720 最大通道差值 0，用 `?layers=` 排除粒子层后对比）；
+* 环境不支持 OffscreenCanvas 时自动退回主线程渲染，返回对象形状不变；
+* 洛茜壁纸对应 `createRossiWorkerWallpaper()`，参数与接口二一致。
+
+完整说明（两个驱动模式、宿主侧 API、打包器接法、「一块画布只能移交一次」等注意事项）见
+[`packages/we-scene/README.md`](packages/we-scene/README.md) 的「把渲染放进 worker」一节；
+测试环境里点控制栏的「worker 渲染」或加 `?worker=1` 即可切换。
 
 ## 快速开始
 

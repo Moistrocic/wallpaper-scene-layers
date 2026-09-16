@@ -84,4 +84,28 @@ export * as mat4 from "./util/math.js";
 export { readNumber, readVec, BinaryReader } from "./util/bytes.js";
 export { describeLayers, summariseScene, engineAssetDependencies, describeLayerParticleParameters, type LayerDescription } from "./scene/inspect.js";
 export { loadPackage, loadPackageFromBlob, createWallpaper, applyLayerFilter, type LayerFilter, type Wallpaper, type WallpaperOptions, type WallpaperSource } from "./wallpaper.js";
-export { ROSSI_WALLPAPER, createRossiWallpaper, type RossiWallpaperOptions } from "./presets/rossi.js";
+export type { RendererViewport } from "./render/renderer.js";
+// --- worker 渲染：主线程只保留画布与输入，解析 / 解码 / 编译 / 每帧绘制都在 worker 里 ---
+export {
+  createWorkerWallpaper,
+  supportsWorkerRendering,
+  DEFAULT_RENDER_WORKER_URL,
+  type WorkerWallpaper,
+  type WorkerWallpaperOptions,
+  type WorkerWallpaperEvent
+} from "./worker/host.js";
+export { startRenderWorker, isWorkerScope, type WorkerScope } from "./worker/render-worker.js";
+export type {
+  HostMessage,
+  WorkerMessage,
+  WorkerDriver,
+  WorkerStats,
+  WorkerReadyMessage,
+  WorkerParticleParameters,
+  WorkerArchiveInfo,
+  WorkerCapabilities,
+  WorkerEngineAssets,
+  SerializedWorkerOptions,
+  SerializedSource
+} from "./worker/protocol.js";
+export { ROSSI_WALLPAPER, createRossiWallpaper, createRossiWorkerWallpaper, type RossiWallpaperOptions, type RossiWorkerWallpaperOptions } from "./presets/rossi.js";

@@ -14,6 +14,14 @@
     "./shaders": {
       "types": "./dist/shaders/prelude.d.ts",
       "import": "./dist/shaders/prelude.js"
+    },
+    "./worker": {
+      "types": "./dist/worker/render-worker.d.ts",
+      "import": "./dist/worker/render-worker.js"
+    },
+    "./worker/host": {
+      "types": "./dist/worker/host.d.ts",
+      "import": "./dist/worker/host.js"
     }
   },
   "bin": {
@@ -26,7 +34,9 @@
     "README.md",
     "LICENSE"
   ],
-  "sideEffects": false,
+  "sideEffects": [
+    "./dist/worker/render-worker.js"
+  ],
   "keywords": [
     "wallpaper-engine",
     "scene",

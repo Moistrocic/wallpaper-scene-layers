@@ -11,7 +11,7 @@ export class TextRasterizer {
   private readonly fonts = new Map<string, string>();
   private readonly textures = new Map<string, GpuTexture>();
 
-  constructor(private readonly gl: WebGL2RenderingContext) {}
+  constructor(private readonly gl: WebGL2RenderingContext, private readonly onDiagnostic?: (message: string) => void) {}
 
   /** Registers a TTF/OTF from the package, returning the CSS family name. */
   async registerFont(path: string, data: Uint8Array): Promise<string> {
@@ -22,9 +22,13 @@ export class TextRasterizer {
     try {
       const font = new FontFace(family, data.slice().buffer as ArrayBuffer);
       await font.load();
-      (document.fonts as FontFaceSet).add(font);
-    } catch {
+      // 主线程是 document.fonts，worker 里是 self.fonts；都没有就只能退回通用字体。
+      const available = fontSet();
+      if (available) available.add(font);
+      else this.onDiagnostic?.(`text: 当前环境没有 FontFaceSet，包内字体 "${path}" 无法注册（文字退回通用字体）`);
+    } catch (error) {
       // A missing font simply falls back to the generic family below.
+      this.onDiagnostic?.(`text: 字体 "${path}" 注册失败（${(error as Error).message}），文字退回通用字体`);
     }
     return family;
   }
@@ -59,14 +63,11 @@ export class TextRasterizer {
   }
 
   private rasterize(text: TextLayerConfig, boxWidth: number, boxHeight: number, scale: number): GpuTexture | null {
-    if (typeof document === "undefined") return null;
     const width = Math.max(1, Math.round(boxWidth * scale));
     const height = Math.max(1, Math.round(boxHeight * scale));
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const context = canvas.getContext("2d");
-    if (!context) return null;
+    const surface = createSurface(width, height);
+    if (!surface) return null;
+    const { canvas, context } = surface;
 
     const family = this.fonts.get(text.font) ?? this.fonts.get(text.font.toLowerCase()) ?? "sans-serif";
     const fontSize = Math.max(1, text.pointSize * scale);
@@ -146,6 +147,35 @@ function wrapText(context: CanvasRenderingContext2D, value: string, maxWidth: nu
     if (lines.length < maxRows && current.length > 0) lines.push(current);
   }
   return lines.slice(0, Math.max(1, maxRows));
+}
+
+/**
+ * 注册字体的 FontFaceSet：主线程取 document.fonts，worker 取 self.fonts。
+ * 两者都没有（比如 Node）时返回 undefined，由调用方退回通用字体。
+ */
+function fontSet(): FontFaceSet | undefined {
+  const scope = globalThis as { fonts?: FontFaceSet; document?: { fonts?: FontFaceSet } };
+  return scope.fonts ?? scope.document?.fonts;
+}
+
+/** 2D 画布：优先用主线程的 DOM 画布，worker 里退到 OffscreenCanvas。 */
+function createSurface(
+  width: number,
+  height: number
+): { canvas: HTMLCanvasElement | OffscreenCanvas; context: CanvasRenderingContext2D } | null {
+  if (typeof document !== "undefined") {
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    return context ? { canvas, context } : null;
+  }
+  if (typeof OffscreenCanvas !== "undefined") {
+    const canvas = new OffscreenCanvas(width, height);
+    const context = canvas.getContext("2d") as CanvasRenderingContext2D | null;
+    return context ? { canvas, context } : null;
+  }
+  return null;
 }
 
 function hashString(value: string): number {

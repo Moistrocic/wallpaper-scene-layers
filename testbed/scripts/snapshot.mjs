@@ -164,26 +164,36 @@ if (clickSelector) {
   console.log("click " + clickSelector + ":", clicked.value);
   await sleep(600);
 }
-const diagnostics = await evaluate(`(() => {
+const diagnostics = await evaluate(`(async () => {
   const wallpaper = window.__wallpaper;
   if (!wallpaper) return JSON.stringify({ ready: window.__ready === true, note: 'no wallpaper handle' });
   const canvas = document.getElementById("canvas");
+  // 主线程渲染时一切都在 wallpaper.renderer 上；worker 渲染时用回传的清单与统计。
+  const renderer = wallpaper.renderer;
+  const worker = renderer ? null : wallpaper;
+  // worker 路径一律现问一次：statsIntervalMs 推回来的可能是上一帧的快照。
+  const workerStats = renderer ? null : await worker.requestStats();
+  const layerStats = renderer ? renderer.layerStats : workerStats.stats;
+  const engine = renderer
+    ? (renderer.engineAssetStats ? { stats: renderer.engineAssetStats, files: renderer.loadedEngineAssets, missing: renderer.missingEngineAssets } : null)
+    : (worker.engineAssets ? { stats: { cached: worker.engineAssets.cached, missing: worker.engineAssets.missing, bytes: worker.engineAssets.bytes }, files: worker.engineAssets.loaded, missing: worker.engineAssets.missingFiles } : null);
   return JSON.stringify({
+    mode: renderer ? "main" : "worker",
+    bench: window.__bench ?? null,
+    runtime: worker ? { offscreen: worker.offscreen === true, stats: workerStats } : null,
     canvas: canvas ? { width: canvas.width, height: canvas.height, clientWidth: canvas.clientWidth, clientHeight: canvas.clientHeight } : null,
-    layers: wallpaper.layerCount,
-    viewport: wallpaper.renderer.viewportSize,
+    layers: renderer ? wallpaper.layerCount : wallpaper.layers.length,
+    viewport: renderer ? renderer.viewportSize : { width: canvas.width, height: canvas.height, pixelRatio: window.devicePixelRatio || 1 },
     panel: (() => {
       const panel = document.getElementById("params");
       if (!panel || panel.classList.contains("hidden")) return null;
       return document.getElementById("params-body")?.textContent?.replace(/\\s+/g, " ").slice(0, 800) ?? null;
     })(),
-    engine: wallpaper.renderer.engineAssetStats
-      ? { stats: wallpaper.renderer.engineAssetStats, files: wallpaper.renderer.loadedEngineAssets, missing: wallpaper.renderer.missingEngineAssets }
-      : null,
-    drawn: wallpaper.renderer.layerStats.filter((entry) => entry.drawn).map((entry) => entry.layerId),
-    shaderErrors: wallpaper.renderer.shaderErrors,
-    diagnostics: wallpaper.renderer.diagnostics.slice(0, 20),
-    stats: wallpaper.renderer.layerStats.map((entry) => ({ id: entry.layerId, type: entry.type, drawn: entry.drawn, reason: entry.reason, particles: entry.particles, quad: entry.quad, bounds: entry.bounds, clip: entry.clip })),
+    engine,
+    drawn: layerStats.filter((entry) => entry.drawn).map((entry) => entry.layerId),
+    shaderErrors: renderer ? renderer.shaderErrors : worker.shaderErrors,
+    diagnostics: renderer ? renderer.diagnostics.slice(0, 20) : worker.diagnostics.slice(0, 20),
+    stats: layerStats.map((entry) => ({ id: entry.layerId, type: entry.type, drawn: entry.drawn, reason: entry.reason, particles: entry.particles, quad: entry.quad, bounds: entry.bounds, clip: entry.clip })),
     // Mean luminance of the rendered canvas, handy to spot blown out effects.
     probe: (() => {
       const probe = document.createElement("canvas");
@@ -213,7 +223,7 @@ const diagnostics = await evaluate(`(() => {
       return { mean: +(sum / count).toFixed(3), blownPercent: +((blown / count) * 100).toFixed(1) };
     })()
   });
-})()`);
+})()`, true);
 fs.mkdirSync(path.dirname(outPath), { recursive: true });
 const shot = await send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
 fs.writeFileSync(outPath, Buffer.from(shot.data, "base64"));
@@ -223,6 +233,9 @@ console.log("screenshot:", outPath);
 if (diagnostics.error) console.log("diagnostics failed:", String(diagnostics.error).split("\n")[0]);
 if (diagnostics.value) {
   const parsed = JSON.parse(diagnostics.value);
+  if (parsed.mode) console.log("render mode:", parsed.mode + (parsed.runtime ? ` (${parsed.runtime.offscreen ? "OffscreenCanvas" : "canvas"})` : ""));
+  if (parsed.bench) console.log("main-thread block bench:", JSON.stringify(parsed.bench));
+  if (parsed.runtime?.stats) console.log("worker runtime:", JSON.stringify({ fps: parsed.runtime.stats.fps, frames: parsed.runtime.stats.frames, time: +parsed.runtime.stats.time.toFixed(2) }));
   console.log("drawn layers:", JSON.stringify(parsed.drawn));
   console.log("canvas:", JSON.stringify(parsed.canvas));
   if (parsed.viewport) console.log("viewport:", JSON.stringify(parsed.viewport));

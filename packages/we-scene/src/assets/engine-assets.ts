@@ -74,6 +74,14 @@ export class EngineAssets {
     return { cached: this.cache.size, missing: this.missing.size, bytes: this.totalBytes };
   }
 
+  /**
+   * 读取来源（baseUrl / directory）。把「引擎资源」开关转交给 worker 时，
+   * 宿主用它把这个实例换成一个可以结构化克隆的选项对象。
+   */
+  get source(): { baseUrl?: string; directory?: string } {
+    return { baseUrl: this.baseUrl, directory: this.directory };
+  }
+
   /** 已缓存（或已确认不存在）的资源路径。 */
   list(): string[] {
     return [...this.cache.keys()];

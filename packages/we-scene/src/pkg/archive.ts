@@ -92,6 +92,14 @@ export class PackageArchive {
     return this.header.magic;
   }
 
+  /**
+   * 包字节的一份拷贝（独立 ArrayBuffer）。用于把已经解析过的包 transfer 给 worker，
+   * 避免主线程重复读取；也避免把外部传入的整块 buffer 一起带过去。
+   */
+  copyBytes(): Uint8Array {
+    return this.bytes.slice();
+  }
+
   /** All file paths contained in the package. */
   list(): string[] {
     return this.header.entries.map((entry) => entry.path);

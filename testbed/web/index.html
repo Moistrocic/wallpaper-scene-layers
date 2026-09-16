@@ -140,6 +140,7 @@
     <label>时间 <input id="time" type="range" min="0" max="20" step="0.05" value="0" /></label>
     <label><input id="parallax" type="checkbox" /> 视差</label>
     <label id="engine-label" class="hidden" title="读取本机安装的 Wallpaper Engine 资源（贴图 / 材质 / 着色器），缺失时才回退到程序化近似"><input id="engine" type="checkbox" /> 引擎资源</label>
+    <label title="把渲染放进 worker（OffscreenCanvas）：主线程只保留画布与输入，切换会重新加载"><input id="worker" type="checkbox" /> worker 渲染</label>
     <label title="整体上浮 + 主方向漂移；关闭后完全按引擎语义（各向同性湍流）"><input id="drift" type="checkbox" checked /> 上浮漂移</label>
     <label class="drift-control">上升 <input id="drift-rise" type="range" min="0" max="320" step="5" value="120" /><span id="drift-rise-value">120</span></label>
     <label class="drift-control">漂移 <input id="drift-speed" type="range" min="0" max="400" step="10" value="200" /><span id="drift-speed-value">200</span></label>

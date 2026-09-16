@@ -23,6 +23,16 @@ export interface WallpaperOptions {
   clearColor?: [number, number, number];
   /** Follow the pointer for camera parallax (enabled by default when the scene wants it). */
   trackMouse?: boolean;
+  /** 单层渲染目标的上限分辨率（默认跟随画布，见 `SceneRendererOptions`）。 */
+  maxLayerResolution?: number;
+  /** 文字图层的栅格化倍率（2 = 每个场景单位两个纹素）。 */
+  textScale?: number;
+  /** 强制某些贴图的像素格式，例如 `{"workshop/x/mask": "r8"}`。 */
+  textureFormatOverrides?: Record<string, "bc1" | "bc2" | "bc3" | "rgba8" | "file">;
+  /** 跳过特效链（调试 / 廉价预览）。 */
+  disableEffects?: boolean;
+  /** 只渲染这些图层 id（调试）。 */
+  onlyLayers?: number[] | null;
   /** Start the render loop immediately, defaults to true. */
   autoStart?: boolean;
   /** Render this many seconds once after loading, for thumbnails. */
@@ -154,6 +164,11 @@ export async function createWallpaper(options: WallpaperOptions): Promise<Wallpa
     clearColor: options.clearColor,
     engineAssets: options.engineAssets,
     particles: options.particles,
+    maxLayerResolution: options.maxLayerResolution,
+    textScale: options.textScale,
+    textureFormatOverrides: options.textureFormatOverrides,
+    disableEffects: options.disableEffects,
+    onlyLayers: options.onlyLayers,
     onDiagnostic: options.onDiagnostic
   };
   const renderer = new SceneRenderer(rendererOptions);

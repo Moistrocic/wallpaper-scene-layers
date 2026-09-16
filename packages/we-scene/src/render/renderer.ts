@@ -37,6 +37,19 @@ import { readNumber, readVec } from "../util/bytes.js";
 
 export type FitMode = "cover" | "contain" | "stretch";
 
+/**
+ * 显式视口尺寸（CSS 像素 + 像素比）。
+ *
+ * 主线程渲染时渲染器自己量画布的布局尺寸；worker 里的 OffscreenCanvas 没有布局
+ * （clientWidth 与 window 都不存在），此时由宿主把尺寸传进来。
+ */
+export interface RendererViewport {
+  width: number;
+  height: number;
+  /** 缺省时依次回退到 SceneRendererOptions.pixelRatio、window.devicePixelRatio、1。 */
+  pixelRatio?: number;
+}
+
 export interface SceneRendererOptions {
   canvas: HTMLCanvasElement | OffscreenCanvas;
   /** Parsed `scene.pkg`. */
@@ -49,6 +62,11 @@ export interface SceneRendererOptions {
   fit?: FitMode;
   /** Device pixel ratio override, defaults to `window.devicePixelRatio`. */
   pixelRatio?: number;
+  /**
+   * 显式视口（worker / OffscreenCanvas）。给定时渲染器不再读取画布布局，尺寸完全以它为准；
+   * 运行中可用 setViewport() 更新。
+   */
+  viewport?: RendererViewport;
   clearColor?: [number, number, number];
   /** Upper bound for per layer render targets, defaults to the canvas size. */
   maxLayerResolution?: number;
@@ -264,7 +282,7 @@ export class SceneRenderer {
       }
     );
     this.targets = new RenderTargetPool(gl);
-    this.text = new TextRasterizer(gl);
+    this.text = new TextRasterizer(gl, (message) => this.report(message));
     this.imageQuad = createBuffer(gl, IMAGE_QUAD);
     this.fullQuad = createBuffer(gl, FULLSCREEN_QUAD);
     const particleBuffer = gl.createBuffer();
@@ -473,9 +491,42 @@ export class SceneRenderer {
     this.options.onDiagnostic?.(message);
   }
 
+  /**
+   * 更新显式视口（worker 宿主收到 ResizeObserver / 窗口尺寸变化时调用）。
+   * 下一帧 render() 会按新尺寸重建后备缓冲。
+   */
+  setViewport(viewport: RendererViewport): void {
+    this.options.viewport = viewport;
+    this.resizeToDisplaySize();
+  }
+
+  /** 运行中切换适配模式（cover / contain / stretch）。 */
+  setFit(fit: FitMode): void {
+    this.options.fit = fit;
+  }
+
+  /** 当前生效的像素比（显式视口 > 选项 > window.devicePixelRatio > 1）。 */
+  private get effectivePixelRatio(): number {
+    return this.options.viewport?.pixelRatio ?? this.options.pixelRatio ?? (typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1);
+  }
+
   private resizeToDisplaySize(): void {
     const canvas = this.options.canvas as HTMLCanvasElement;
-    const ratio = this.options.pixelRatio ?? (typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1);
+    const explicit = this.options.viewport;
+    if (explicit) {
+      // worker / OffscreenCanvas：没有布局，尺寸只能由宿主给。
+      const ratio = this.effectivePixelRatio;
+      const width = Math.max(1, Math.floor(explicit.width * ratio));
+      const height = Math.max(1, Math.floor(explicit.height * ratio));
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+      }
+      this.width = width;
+      this.height = height;
+      return;
+    }
+    const ratio = this.effectivePixelRatio;
     const clientWidth = canvas.clientWidth || canvas.width || 1920;
     const clientHeight = canvas.clientHeight || canvas.height || 1080;
     const width = Math.max(1, Math.floor(clientWidth * ratio));
@@ -593,7 +644,7 @@ export class SceneRenderer {
 
   /** 供调试用的视口尺寸（CSS 像素 × pixelRatio）。 */
   get viewportSize(): { width: number; height: number; pixelRatio: number } {
-    return { width: this.width, height: this.height, pixelRatio: this.options.pixelRatio ?? (typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1) };
+    return { width: this.width, height: this.height, pixelRatio: this.effectivePixelRatio };
   }
 
   private renderLayer(layer: SceneLayer, projection: Mat4, time: number, stats: LayerDrawStats, localProjectionForDebug?: Mat4): void {

@@ -1,4 +1,5 @@
 import { createWallpaper, type Wallpaper, type WallpaperOptions } from "../wallpaper.js";
+import { createWorkerWallpaper, type WorkerWallpaper, type WorkerWallpaperOptions } from "../worker/host.js";
 
 /**
  * **接口二：洛茜（Rossi）壁纸专用适配。**
@@ -39,11 +40,26 @@ export const ROSSI_WALLPAPER = {
 
 /** 接口二：加载洛茜壁纸（= 接口一 + 上面的预设参数）。 */
 export function createRossiWallpaper(options: RossiWallpaperOptions): Promise<Wallpaper> {
-  return createWallpaper({
+  return createWallpaper(rossiOptions(options));
+}
+
+/** 接口二的 worker 版本：参数完全一致，只是渲染发生在 worker 里。 */
+export interface RossiWorkerWallpaperOptions extends WorkerWallpaperOptions {
+  layers?: WorkerWallpaperOptions["layers"];
+  particles?: WorkerWallpaperOptions["particles"];
+}
+
+export function createRossiWorkerWallpaper(options: RossiWorkerWallpaperOptions): Promise<WorkerWallpaper> {
+  return createWorkerWallpaper(rossiOptions(options));
+}
+
+/** 接口二 = 接口一 + 预设图层与预设漂移（同名参数可覆盖）。 */
+function rossiOptions<T extends WallpaperOptions>(options: T): T {
+  return {
     ...options,
     layers: options.layers ?? { include: [...ROSSI_WALLPAPER.layers.include] },
     particles: options.particles ?? {
       drift: { ...ROSSI_WALLPAPER.particles.drift }
     }
-  });
+  };
 }

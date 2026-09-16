@@ -13,6 +13,7 @@
     "lab": "node testbed/server.mjs",
     "verify": "node testbed/scripts/verify.mjs",
     "snapshot": "node testbed/scripts/snapshot.mjs",
+    "diff": "node testbed/scripts/pixel-diff.mjs",
     "extract": "node packages/we-scene/bin/we-scene.mjs",
     "presets": "node testbed/scripts/presets.mjs"
   },
