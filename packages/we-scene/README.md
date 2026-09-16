@@ -1,4 +1,4 @@
-# @web-we-scene/runtime
+# wallpaper-scene-layers
 
 在浏览器里把 **Wallpaper Engine 场景壁纸**（`scene.pkg`）渲染成一个个独立、可单独控制的图层。
 
@@ -7,8 +7,12 @@
 * 每个 object 都是图层，可在运行时查看、隐藏、隔离、重排：这是一个分层工具库，而不是黑盒播放器；
 * 零依赖、纯 ESM，可用于打包器，也可直接 `<script type="module">` 引入。
 
+> **本库主要适配洛茜壁纸**（[Steam 创意工坊 · 3691554683](https://steamcommunity.com/sharedfiles/filedetails/?id=3691554683)）：
+> 接口二 `createRossiWallpaper` 直接给出图层与粒子预设（只保留背景美术 + `灰烬大`，漂移 240/200/0.7）。
+> 仓库**不包含也不分发**任何壁纸素材与 Wallpaper Engine 引擎资源，只提供适配代码。
+
 ```
-npm install @web-we-scene/runtime
+npm install wallpaper-scene-layers
 ```
 
 本目录就是全部对外代码：`src/`（源码）、`bin/`（命令行）、`dist/`（构建产物，包的入口）。
@@ -19,7 +23,7 @@ npm install @web-we-scene/runtime
 ```html
 <canvas id="wallpaper" style="width:100vw;height:100vh;display:block"></canvas>
 <script type="module">
-  import { createWallpaper } from "@web-we-scene/runtime";
+  import { createWallpaper } from "wallpaper-scene-layers";
 
   const wallpaper = await createWallpaper({
     canvas: document.getElementById("wallpaper"),
@@ -44,7 +48,7 @@ npm install @web-we-scene/runtime
 | **接口二** `createRossiWallpaper(options)` | **洛茜（Rossi）壁纸专用**：等于接口一 + 预设参数，可传同名参数覆盖 |
 
 ```ts
-import { createWallpaper, createRossiWallpaper, ROSSI_WALLPAPER } from "@web-we-scene/runtime";
+import { createWallpaper, createRossiWallpaper, ROSSI_WALLPAPER } from "wallpaper-scene-layers";
 
 // 接口一：普通加载
 const generic = await createWallpaper({ canvas, source: "/wallpapers/rossi.pkg" });
@@ -69,7 +73,7 @@ console.log(ROSSI_WALLPAPER);
 ## 只取图层，不渲染
 
 ```ts
-import { loadPackage, createSceneFromArchive, describeLayers } from "@web-we-scene/runtime";
+import { loadPackage, createSceneFromArchive, describeLayers } from "wallpaper-scene-layers";
 
 const archive = await loadPackage("scene.pkg");
 const scene = createSceneFromArchive(archive);
@@ -95,7 +99,7 @@ for (const layer of describeLayers(scene)) {
 ## 手动渲染
 
 ```ts
-import { PackageArchive, createSceneFromArchive, SceneRenderer } from "@web-we-scene/runtime";
+import { PackageArchive, createSceneFromArchive, SceneRenderer } from "wallpaper-scene-layers";
 
 const archive = new PackageArchive(await (await fetch(url)).arrayBuffer());
 const scene = createSceneFromArchive(archive);
@@ -226,7 +230,7 @@ we-scene --particle-defaults                # 命令行（不需要 scene.pkg）
 ```
 
 ```ts
-import { describeParticleDefaults, describeParticleParameters, describeLayerParticleParameters } from "@web-we-scene/runtime";
+import { describeParticleDefaults, describeParticleParameters, describeLayerParticleParameters } from "wallpaper-scene-layers";
 
 console.table(describeParticleDefaults());                 // 整张默认值表：属性 / 取值 / 出处
 console.table(describeLayerParticleParameters(scene, 52)); // 某个粒子层展开后的最终参数

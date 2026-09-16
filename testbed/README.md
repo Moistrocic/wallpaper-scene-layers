@@ -1,6 +1,6 @@
 # testbed — 测试与演示环境
 
-这里的代码**不对外发布**，只用于验证 `packages/we-scene`（`@web-we-scene/runtime`）。
+这里的代码**不对外发布**，只用于验证 `packages/we-scene`（`wallpaper-scene-layers`）。
 库本身的代码全部在 `packages/we-scene/`，两者不互相依赖：测试环境通过
 `../../packages/we-scene/dist/index.js` 以普通使用者的身份引入编译产物。
 

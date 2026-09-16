@@ -1,5 +1,5 @@
 {
-  "name": "web-we-scene",
+  "name": "wallpaper-scene-layers",
   "private": true,
   "version": "0.1.0",
   "description": "Wallpaper Engine 场景壁纸的浏览器分层渲染库 + 测试环境",
